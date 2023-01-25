@@ -146,6 +146,9 @@ def stomp_consumer():
 @click.command()
 @click.argument('uris', nargs=-1)
 def stomp_producer(uris):
+    if len(uris) == 0:
+        raise SystemExit(0)
+
     try:
         connection = create_stomp_connection(
             STOMP_SERVER,
