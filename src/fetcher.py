@@ -45,7 +45,7 @@ def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
         logger.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
     else:
         logger.error(f'HTTP Error: {response.status_code} {response.reason}')
-        logger.error(f'Unable to retrieve {full_image_uri}')
+        raise RuntimeError(f'Unable to retrieve {full_image_uri}')
 
 
 @click.command()
@@ -55,7 +55,7 @@ def cli(uris):
     for repo_uri in uris:
         try:
             fetch_iiif_from_repo_uri(iiif_server, repo_uri)
-        except AssertionError as e:
+        except (AssertionError, RuntimeError) as e:
             logger.error(e)
             logger.warning(f'Skipping {repo_uri}')
 
@@ -83,10 +83,11 @@ class ProcessingListener(ConnectionListener):
             subscription = frame.headers['subscription']
             try:
                 fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
-                self.connection.ack(message_id, subscription)
-            except AssertionError as e:
+            except (AssertionError, RuntimeError) as e:
                 logger.error(e)
                 self.connection.nack(message_id, subscription)
+            else:
+                self.connection.ack(message_id, subscription)
 
 
 class DisconnectListener(ConnectionListener):
