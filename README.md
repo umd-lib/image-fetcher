@@ -51,9 +51,10 @@ When it receives such a message, it translates that URI to a IIIF Image URI,
 and requests that new URI.
 
 If there are any problems processing the message (e.g., a bad URI, network error,
-etc.), the listener sends a NACK frame to the STOMP server. This should result in
-the message being put into the dead-letter queue. By default, on ActiveMQ the
-dead-letter queue name is `ActiveMQ.DLQ`.
+etc.), the listener forwards the message to an error queue (`IMAGES_ERROR_QUEUE`;
+default is `/queue/images.errors`). It also adds the headers `Error` (containing
+the exception message) and `original-destination` (the original queue that this
+was delivered to).
 
 ### image-fetch-send
 
@@ -65,13 +66,14 @@ Each URI given on the command line generates its own message.
 
 Configuration of the utilities is done through environment variables:
 
-| Name                | Required | Default Value    |
-|---------------------|----------|------------------|
-| `REPO_ENDPOINT_URI` | **Yes**  |                  |
-| `IIIF_BASE_URI`     | **Yes**  |                  |
-| `STOMP_SERVER`      | **Yes**  |                  |
-| `LOG_LEVEL`         | No       | `INFO`           |
-| `URI_HEADER_NAME`   | No       | `CamelFcrepoUri` |
-| `IMAGES_QUEUE`      | No       | `/queue/images`  |
+| Name                 | Required | Default Value          |
+|----------------------|----------|------------------------|
+| `REPO_ENDPOINT_URI`  | **Yes**  |                        |
+| `IIIF_BASE_URI`      | **Yes**  |                        |
+| `STOMP_SERVER`       | **Yes**  |                        |
+| `LOG_LEVEL`          | No       | `INFO`                 |
+| `URI_HEADER_NAME`    | No       | `CamelFcrepoUri`       |
+| `IMAGES_QUEUE`       | No       | `/queue/images`        |
+| `IMAGES_ERROR_QUEUE` | No       | `/queue/images.errors` |
 
 These can either be specified in the environment itself or via a `.env` file.

@@ -21,6 +21,7 @@ STOMP_SERVER = os.environ.get('STOMP_SERVER')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 URI_HEADER_NAME = os.environ.get('URI_HEADER_NAME', 'CamelFcrepoUri')
 IMAGES_QUEUE = os.environ.get('IMAGES_QUEUE', '/queue/images')
+IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors')
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -85,8 +86,16 @@ class ProcessingListener(ConnectionListener):
                 fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
             except (AssertionError, RuntimeError) as e:
                 logger.error(e)
-                self.connection.nack(message_id, subscription)
-            else:
+                self.connection.send(
+                    destination=IMAGES_ERROR_QUEUE,
+                    headers={
+                        **frame.headers,
+                        'Error': str(e),
+                        'original-destination': frame.headers['destination'],
+                    },
+                    body=frame.body,
+                )
+            finally:
                 self.connection.ack(message_id, subscription)
 
 
