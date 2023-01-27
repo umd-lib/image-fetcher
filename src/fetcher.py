@@ -24,7 +24,6 @@ IMAGES_QUEUE = os.environ.get('IMAGES_QUEUE', '/queue/images')
 IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors')
 
 logging.basicConfig(level=LOG_LEVEL)
-logger = logging.getLogger(__name__)
 
 
 def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
@@ -37,15 +36,15 @@ def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
     iiif_identifier = 'fcrepo' + repo_path.replace('/', ':')
     full_image_uri = iiif_server.image_uri(iiif_identifier)
 
-    logger.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
+    logging.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
 
     with Timer(logger=None) as timer:
         response = requests.get(str(full_image_uri))
 
     if response.ok:
-        logger.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
+        logging.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
     else:
-        logger.error(f'HTTP Error: {response.status_code} {response.reason}')
+        logging.error(f'HTTP Error: {response.status_code} {response.reason}')
         raise RuntimeError(f'Unable to retrieve {full_image_uri}')
 
 
@@ -57,8 +56,8 @@ def cli(uris):
         try:
             fetch_iiif_from_repo_uri(iiif_server, repo_uri)
         except (AssertionError, RuntimeError) as e:
-            logger.error(e)
-            logger.warning(f'Skipping {repo_uri}')
+            logging.error(e)
+            logging.warning(f'Skipping {repo_uri}')
 
 
 class LoggingListener(PrintingListener):
@@ -85,7 +84,7 @@ class ProcessingListener(ConnectionListener):
             try:
                 fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
             except (AssertionError, RuntimeError) as e:
-                logger.error(e)
+                logging.error(e)
                 self.connection.send(
                     destination=IMAGES_ERROR_QUEUE,
                     headers={
@@ -108,7 +107,7 @@ class DisconnectListener(ConnectionListener):
 
 
 def create_stomp_connection(stomp_server, listeners=None, **kwargs) -> Connection:
-    logger.debug(stomp_server)
+    logging.debug(stomp_server)
     connection = stomp.Connection11([tuple(stomp_server.split(':', 1))], **kwargs)
     if listeners is None:
         listeners = []
@@ -120,13 +119,13 @@ def create_stomp_connection(stomp_server, listeners=None, **kwargs) -> Connectio
             # it with the current connection
             connection.set_listener(name, listener(connection))
         else:
-            logger.error(f'Expecting a ConnectionListener instance or class, or a callable for listener "{name}"')
+            logging.error(f'Expecting a ConnectionListener instance or class, or a callable for listener "{name}"')
             raise ValueError
     try:
         connection.connect()
         return connection
     except ConnectFailedException:
-        logger.error(f'Unable to connect to STOMP server at {stomp_server}')
+        logging.error(f'Unable to connect to STOMP server at {stomp_server}')
         raise
 
 
@@ -168,7 +167,7 @@ def stomp_producer(uris):
         raise SystemExit(1)
 
     for n, repo_uri in enumerate(uris):
-        logger.info(f'Sending repo URI {repo_uri} to stomp://{STOMP_SERVER}{IMAGES_QUEUE} for image pre-fetching')
+        logging.info(f'Sending repo URI {repo_uri} to stomp://{STOMP_SERVER}{IMAGES_QUEUE} for image pre-fetching')
         try:
             connection.send(
                 destination=IMAGES_QUEUE,
@@ -179,10 +178,10 @@ def stomp_producer(uris):
                 persistent='true',
             )
         except NotConnectedException:
-            logger.error(f'Unexpected disconnection from STOMP server at {STOMP_SERVER}')
-            logger.warning('The following URIs were NOT submitted:')
+            logging.error(f'Unexpected disconnection from STOMP server at {STOMP_SERVER}')
+            logging.warning('The following URIs were NOT submitted:')
             for unsent_uri in uris[n:]:
-                logger.warning(unsent_uri)
+                logging.warning(unsent_uri)
             raise SystemExit(1)
 
     if connection.is_connected():
