@@ -77,3 +77,26 @@ Configuration of the utilities is done through environment variables:
 | `IMAGES_ERROR_QUEUE` | No       | `/queue/images.errors` |
 
 These can either be specified in the environment itself or via a `.env` file.
+
+## Docker Images
+
+This repository contains a multi-target [Dockerfile](Dockerfile) that can
+build Docker images for each of the three [utilities](#utilities) described
+above.
+
+```bash
+docker build -t docker.lib.umd.edu/image-fetch --target image-fetch .
+```
+
+```bash
+docker build -t docker.lib.umd.edu/image-fetch-send --target image-fetch-send .
+```
+
+```bash
+docker build -t docker.lib.umd.edu/image-fetch-listen --target image-fetch-listen .
+```
+
+When using these images, you will need to use the appropriate method to pass
+environment variables to the running containers (e.g., the `--env` and/or
+`--env-file` flags of `docker run`, or the `environment` section of a Docker
+Compose file).
