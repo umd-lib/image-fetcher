@@ -81,6 +81,8 @@ class ProcessingListener(ConnectionListener):
             repo_uri = frame.headers[URI_HEADER_NAME]
             message_id = frame.headers['message-id']
             subscription = frame.headers['subscription']
+            destination = frame.headers['destination']
+            logging.info(f'Received message on {destination} for repo URI {repo_uri}')
             try:
                 fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
             except (AssertionError, RuntimeError) as e:
@@ -90,7 +92,7 @@ class ProcessingListener(ConnectionListener):
                     headers={
                         **frame.headers,
                         'Error': str(e),
-                        'original-destination': frame.headers['destination'],
+                        'original-destination': destination,
                     },
                     body=frame.body,
                 )
