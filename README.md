@@ -78,6 +78,27 @@ Configuration of the utilities is done through environment variables:
 
 These can either be specified in the environment itself or via a `.env` file.
 
+## Testing
+
+Tests are written using the [pytest] framework. To install the testing
+dependencies, run:
+
+```bash
+pip install -r requirements.test.txt
+```
+
+Then run the test suite:
+
+```bash
+pytest
+```
+
+To include a test coverage report (using the [pytest-cov] plugin):
+
+```bash
+pytest --cov-report=term-missing --cov=src
+```
+
 ## Docker Images
 
 This repository contains a multi-target [Dockerfile](Dockerfile) that can
@@ -100,3 +121,6 @@ When using these images, you will need to use the appropriate method to pass
 environment variables to the running containers (e.g., the `--env` and/or
 `--env-file` flags of `docker run`, or the `environment` section of a Docker
 Compose file).
+
+[pytest]: https://docs.pytest.org/en/7.2.x/
+[pytest-cov]: https://pytest-cov.readthedocs.io/en/latest/
