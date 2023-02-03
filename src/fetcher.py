@@ -2,11 +2,13 @@ import logging
 import os
 from threading import Event
 
+import backoff
 import click
 import requests
 import stomp
 from codetiming import Timer
 from dotenv import load_dotenv
+from requests import RequestException
 from stomp import PrintingListener, ConnectionListener, Connection
 from stomp.exception import NotConnectedException, ConnectFailedException
 from stomp.utils import Frame
@@ -38,14 +40,23 @@ def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
 
     logging.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
 
-    with Timer(logger=None) as timer:
-        response = requests.get(str(full_image_uri))
+    try:
+        with Timer(logger=None) as timer:
+            response = get_url(str(full_image_uri))
+    except RequestException as e:
+        logging.error(f'Request error: {e}')
+        raise RuntimeError(f'Unable to retrieve {full_image_uri}; Request error: {e}')
 
     if response.ok:
         logging.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
     else:
-        logging.error(f'HTTP Error: {response.status_code} {response.reason}')
-        raise RuntimeError(f'Unable to retrieve {full_image_uri}')
+        logging.error(f'HTTP error: {response.status_code} {response.reason}')
+        raise RuntimeError(f'Unable to retrieve {full_image_uri}; HTTP error: {response.status_code} {response.reason}')
+
+
+@backoff.on_exception(backoff.expo, RequestException, max_tries=3)
+def get_url(url):
+    return requests.get(url)
 
 
 @click.command()
