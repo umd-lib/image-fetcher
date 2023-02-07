@@ -1,6 +1,7 @@
 import logging
 import os
 from threading import Event
+from typing import Union
 
 import backoff
 import click
@@ -13,7 +14,7 @@ from stomp import PrintingListener, ConnectionListener, Connection
 from stomp.exception import NotConnectedException, ConnectFailedException
 from stomp.utils import Frame
 
-from iiif import ImageServer
+from iiif import ImageServer, ImageURI
 
 load_dotenv()
 
@@ -28,30 +29,29 @@ IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors'
 logging.basicConfig(level=LOG_LEVEL)
 
 
-def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
+def get_iiif_identifier(repo_uri: str) -> str:
     assert repo_uri.startswith(REPO_ENDPOINT_URI), \
         f'Repo URI {repo_uri} must start with the endpoint URI {REPO_ENDPOINT_URI}'
 
     repo_path = repo_uri[len(REPO_ENDPOINT_URI):]
     assert repo_path.startswith('/'), f'Repo path "{repo_path}" must start with "/"'
 
-    iiif_identifier = 'fcrepo' + repo_path.replace('/', ':')
-    full_image_uri = iiif_server.image_uri(iiif_identifier)
+    return 'fcrepo' + repo_path.replace('/', ':')
 
-    logging.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
 
+def fetch_iiif_image(image_uri: Union[str, ImageURI]):
     try:
         with Timer(logger=None) as timer:
-            response = get_url(str(full_image_uri))
+            response = get_url(str(image_uri))
     except RequestException as e:
         logging.error(f'Request error: {e}')
-        raise RuntimeError(f'Unable to retrieve {full_image_uri}; Request error: {e}')
+        raise RuntimeError(f'Unable to retrieve {image_uri}; Request error: {e}')
 
     if response.ok:
-        logging.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
+        logging.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {image_uri}')
     else:
         logging.error(f'HTTP error: {response.status_code} {response.reason}')
-        raise RuntimeError(f'Unable to retrieve {full_image_uri}; HTTP error: {response.status_code} {response.reason}')
+        raise RuntimeError(f'Unable to retrieve {image_uri}; HTTP error: {response.status_code} {response.reason}')
 
 
 @backoff.on_exception(backoff.expo, RequestException, max_tries=3)
@@ -65,7 +65,10 @@ def cli(uris):
     iiif_server = ImageServer(IIIF_BASE_URI)
     for repo_uri in uris:
         try:
-            fetch_iiif_from_repo_uri(iiif_server, repo_uri)
+            iiif_identifier = get_iiif_identifier(repo_uri)
+            full_image_uri = iiif_server.image_uri(iiif_identifier)
+            logging.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
+            fetch_iiif_image(full_image_uri)
         except (AssertionError, RuntimeError) as e:
             logging.error(e)
             logging.warning(f'Skipping {repo_uri}')
@@ -95,7 +98,10 @@ class ProcessingListener(ConnectionListener):
             destination = frame.headers['destination']
             logging.info(f'Received message on {destination} for repo URI {repo_uri}')
             try:
-                fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
+                frame.headers['IIIFIdentifier'] = get_iiif_identifier(repo_uri)
+                frame.headers['IIIFUri'] = self.iiif_server.image_uri(frame.headers['IIIFIdentifier'])
+                logging.info(f'Converted repo URI {repo_uri} to IIIF URI {frame.headers["IIIFUri"]}')
+                fetch_iiif_image(frame.headers['IIIFUri'])
             except (AssertionError, RuntimeError) as e:
                 logging.error(e)
                 self.connection.send(
