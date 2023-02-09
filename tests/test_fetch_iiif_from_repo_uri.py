@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from requests import RequestException
 
-from fetcher import fetch_iiif_from_repo_uri, get_url
+from fetcher import get_url, get_iiif_identifier, fetch_iiif_image
 from iiif import ImageServer
 
 
@@ -25,22 +25,29 @@ class MockFailureResponse:
 
 
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_repo_uri_outside_repo(monkeypatch, image_server):
+def test_repo_uri_outside_repo(monkeypatch):
     with pytest.raises(AssertionError, match='must start with the endpoint URI'):
-        fetch_iiif_from_repo_uri(image_server, 'http://other.example.com/foo')
+        get_iiif_identifier('http://other.example.com/foo')
 
 
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_repo_path_no_leading_slash(monkeypatch, image_server):
+def test_repo_path_no_leading_slash(monkeypatch):
     with pytest.raises(AssertionError, match='must start with "/"'):
-        fetch_iiif_from_repo_uri(image_server, 'http://example.com/fcrepo/rest?foo')
+        get_iiif_identifier('http://example.com/fcrepo/rest?foo')
+
+
+@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
+def test_get_iiif_identifier(monkeypatch):
+    identifier = get_iiif_identifier('http://example.com/fcrepo/rest/foo/bar/123')
+    assert identifier == 'fcrepo:foo:bar:123'
 
 
 @patch('requests.get', return_value=MockSuccessResponse)
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
 def test_successful_retrieval(monkeypatch, image_server, caplog):
     caplog.set_level(logging.INFO)
-    fetch_iiif_from_repo_uri(image_server, 'http://example.com/fcrepo/rest/foo')
+    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
+    fetch_iiif_image(image_uri)
     assert 'Fetched 1024 bytes' in caplog.text
 
 
@@ -48,8 +55,9 @@ def test_successful_retrieval(monkeypatch, image_server, caplog):
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
 def test_failed_retrieval(monkeypatch, image_server, caplog):
     caplog.set_level(logging.INFO)
+    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
     with pytest.raises(RuntimeError) as e:
-        fetch_iiif_from_repo_uri(image_server, 'http://example.com/fcrepo/rest/foo')
+        fetch_iiif_image(image_uri)
         assert 'Unable to retrieve' in str(e)
 
 
