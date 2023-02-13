@@ -16,11 +16,6 @@ def mock_fetch_iiif_image_failed():
 
 
 @pytest.fixture
-def mock_stomp_connection():
-    return MagicMock(spec=stomp.Connection11)
-
-
-@pytest.fixture
 def stomp_frame():
     return Frame(
         cmd='MESSAGE',

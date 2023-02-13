@@ -44,7 +44,7 @@ def test_get_iiif_identifier(monkeypatch):
 
 @patch('requests.get', return_value=MockSuccessResponse)
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_successful_retrieval(monkeypatch, image_server, caplog):
+def test_successful_retrieval(image_server, caplog):
     caplog.set_level(logging.INFO)
     image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
     fetch_iiif_image(image_uri)
@@ -53,12 +53,24 @@ def test_successful_retrieval(monkeypatch, image_server, caplog):
 
 @patch('requests.get', return_value=MockFailureResponse)
 @patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_failed_retrieval(monkeypatch, image_server, caplog):
+def test_failed_retrieval_http_error(image_server, caplog):
     caplog.set_level(logging.INFO)
     image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
     with pytest.raises(RuntimeError) as e:
         fetch_iiif_image(image_uri)
         assert 'Unable to retrieve' in str(e)
+        assert 'HTTP error' in str(e)
+
+
+@patch('requests.get', side_effect=RequestException)
+@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
+def test_failed_retrieval_request_exception(image_server, caplog):
+    caplog.set_level(logging.INFO)
+    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
+    with pytest.raises(RuntimeError) as e:
+        fetch_iiif_image(image_uri)
+        assert 'Unable to retrieve' in str(e)
+        assert 'Request error' in str(e)
 
 
 @patch('requests.get', side_effect=RequestException)
