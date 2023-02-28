@@ -26,8 +26,8 @@ URI_HEADER_NAME = os.environ.get('URI_HEADER_NAME', 'CamelFcrepoUri')
 IMAGES_QUEUE = os.environ.get('IMAGES_QUEUE', '/queue/images')
 IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors')
 
+logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
-logger.setLevel(LOG_LEVEL)
 
 
 def get_iiif_identifier(repo_uri: str) -> str:
