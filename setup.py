@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='image-fetcher',
-    version='1.0.0rc3',
+    version='1.0.0rc4',
     install_requires=[
         'backoff',
         'click',
