@@ -44,3 +44,12 @@ def test_copy_changing_params(image_server):
     new_uri = image_uri.replace(region='0,0,100,100')
     assert image_uri.region == 'full'
     assert new_uri.region == '0,0,100,100'
+
+
+def test_callable(image_server):
+    image_uri = image_server.image_uri('foo')
+    new_uri = image_uri(region='0,0,100,100')
+    assert image_uri.region == 'full'
+    assert new_uri.region == '0,0,100,100'
+
+

@@ -1,0 +1,22 @@
+[project]
+name = "image-fetcher"
+version = "1.0.0"
+
+dependencies = [
+    "backoff",
+    "click",
+    "codetiming",
+    "requests",
+    "stomp.py",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pycodestyle",
+]
+
+[project.scripts]
+image-fetch = "fetcher:cli"
+image-fetch-listen = "fetcher:stomp_consumer"
+image-fetch-send = "fetcher:stomp_producer"

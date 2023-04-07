@@ -1,3 +1,4 @@
+backoff==2.2.1
 certifi==2022.12.7
 charset-normalizer==3.0.1
 codetiming==1.4.0

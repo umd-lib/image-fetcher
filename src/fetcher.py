@@ -1,17 +1,20 @@
 import logging
 import os
 from threading import Event
+from typing import Union, List
 
+import backoff
 import click
 import requests
 import stomp
 from codetiming import Timer
 from dotenv import load_dotenv
+from requests import RequestException
 from stomp import PrintingListener, ConnectionListener, Connection
 from stomp.exception import NotConnectedException, ConnectFailedException
 from stomp.utils import Frame
 
-from iiif import ImageServer
+from iiif import ImageServer, ImageURI
 
 load_dotenv()
 
@@ -24,28 +27,37 @@ IMAGES_QUEUE = os.environ.get('IMAGES_QUEUE', '/queue/images')
 IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors')
 
 logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
 
-def fetch_iiif_from_repo_uri(iiif_server: ImageServer, repo_uri: str):
+def get_iiif_identifier(repo_uri: str) -> str:
     assert repo_uri.startswith(REPO_ENDPOINT_URI), \
         f'Repo URI {repo_uri} must start with the endpoint URI {REPO_ENDPOINT_URI}'
 
     repo_path = repo_uri[len(REPO_ENDPOINT_URI):]
     assert repo_path.startswith('/'), f'Repo path "{repo_path}" must start with "/"'
 
-    iiif_identifier = 'fcrepo' + repo_path.replace('/', ':')
-    full_image_uri = iiif_server.image_uri(iiif_identifier)
+    return 'fcrepo' + repo_path.replace('/', ':')
 
-    logging.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
 
-    with Timer(logger=None) as timer:
-        response = requests.get(str(full_image_uri))
+def fetch_iiif_image(image_uri: Union[str, ImageURI]):
+    try:
+        with Timer(logger=None) as timer:
+            response = get_url(str(image_uri))
+    except RequestException as e:
+        logger.error(f'Request error: {e}')
+        raise RuntimeError(f'Unable to retrieve {image_uri}; Request error: {e}')
 
     if response.ok:
-        logging.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {full_image_uri}')
+        logger.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {image_uri}')
     else:
-        logging.error(f'HTTP Error: {response.status_code} {response.reason}')
-        raise RuntimeError(f'Unable to retrieve {full_image_uri}')
+        logger.error(f'HTTP error: {response.status_code} {response.reason}')
+        raise RuntimeError(f'Unable to retrieve {image_uri}; HTTP error: {response.status_code} {response.reason}')
+
+
+@backoff.on_exception(backoff.expo, RequestException, max_tries=3)
+def get_url(url):
+    return requests.get(url)
 
 
 @click.command()
@@ -54,10 +66,13 @@ def cli(uris):
     iiif_server = ImageServer(IIIF_BASE_URI)
     for repo_uri in uris:
         try:
-            fetch_iiif_from_repo_uri(iiif_server, repo_uri)
+            iiif_identifier = get_iiif_identifier(repo_uri)
+            full_image_uri = iiif_server.image_uri(iiif_identifier)
+            logger.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
+            fetch_iiif_image(full_image_uri)
         except (AssertionError, RuntimeError) as e:
-            logging.error(e)
-            logging.warning(f'Skipping {repo_uri}')
+            logger.error(e)
+            logger.warning(f'Skipping {repo_uri}')
 
 
 class LoggingListener(PrintingListener):
@@ -68,7 +83,7 @@ class LoggingListener(PrintingListener):
     # must use the "mangled name" to properly override
     # the "__print" method in the parent class
     def _PrintingListener__print(self, msg, *args):
-        logging.log(self.level, msg, *args)
+        logger.log(self.level, msg, *args)
 
 
 class ProcessingListener(ConnectionListener):
@@ -82,11 +97,14 @@ class ProcessingListener(ConnectionListener):
             message_id = frame.headers['message-id']
             subscription = frame.headers['subscription']
             destination = frame.headers['destination']
-            logging.info(f'Received message on {destination} for repo URI {repo_uri}')
+            logger.info(f'Received message on {destination} for repo URI {repo_uri}')
             try:
-                fetch_iiif_from_repo_uri(self.iiif_server, repo_uri)
+                frame.headers['IIIFIdentifier'] = get_iiif_identifier(repo_uri)
+                frame.headers['IIIFUri'] = self.iiif_server.image_uri(frame.headers['IIIFIdentifier'])
+                logger.info(f'Converted repo URI {repo_uri} to IIIF URI {frame.headers["IIIFUri"]}')
+                fetch_iiif_image(frame.headers['IIIFUri'])
             except (AssertionError, RuntimeError) as e:
-                logging.error(e)
+                logger.error(e)
                 self.connection.send(
                     destination=IMAGES_ERROR_QUEUE,
                     headers={
@@ -109,7 +127,7 @@ class DisconnectListener(ConnectionListener):
 
 
 def create_stomp_connection(stomp_server, listeners=None, **kwargs) -> Connection:
-    logging.debug(stomp_server)
+    logger.debug(stomp_server)
     connection = stomp.Connection11([tuple(stomp_server.split(':', 1))], **kwargs)
     if listeners is None:
         listeners = []
@@ -121,13 +139,13 @@ def create_stomp_connection(stomp_server, listeners=None, **kwargs) -> Connectio
             # it with the current connection
             connection.set_listener(name, listener(connection))
         else:
-            logging.error(f'Expecting a ConnectionListener instance or class, or a callable for listener "{name}"')
+            logger.error(f'Expecting a ConnectionListener instance or class, or a callable for listener "{name}"')
             raise ValueError
     try:
         connection.connect()
         return connection
     except ConnectFailedException:
-        logging.error(f'Unable to connect to STOMP server at {stomp_server}')
+        logger.error(f'Unable to connect to STOMP server at {stomp_server}')
         raise
 
 
@@ -168,8 +186,21 @@ def stomp_producer(uris):
     except (ConnectFailedException, ValueError):
         raise SystemExit(1)
 
+    try:
+        send_uris(connection, uris)
+    except UnsentURIs as e:
+        logger.warning('The following URIs were NOT submitted:')
+        for unsent_uri in e.uris:
+            logger.warning(unsent_uri)
+        raise SystemExit(1)
+
+    if connection.is_connected():
+        connection.disconnect()
+
+
+def send_uris(connection: Connection, uris: List[str]):
     for n, repo_uri in enumerate(uris):
-        logging.info(f'Sending repo URI {repo_uri} to stomp://{STOMP_SERVER}{IMAGES_QUEUE} for image pre-fetching')
+        logger.info(f'Sending repo URI {repo_uri} to stomp://{STOMP_SERVER}{IMAGES_QUEUE} for image pre-fetching')
         try:
             connection.send(
                 destination=IMAGES_QUEUE,
@@ -180,11 +211,11 @@ def stomp_producer(uris):
                 persistent='true',
             )
         except NotConnectedException:
-            logging.error(f'Unexpected disconnection from STOMP server at {STOMP_SERVER}')
-            logging.warning('The following URIs were NOT submitted:')
-            for unsent_uri in uris[n:]:
-                logging.warning(unsent_uri)
-            raise SystemExit(1)
+            logger.error(f'Unexpected disconnection from STOMP server at {STOMP_SERVER}')
+            raise UnsentURIs(uris[n:])
 
-    if connection.is_connected():
-        connection.disconnect()
+
+class UnsentURIs(Exception):
+    def __init__(self, uris, *args):
+        super().__init__(*args)
+        self.uris = uris

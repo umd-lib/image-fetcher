@@ -1,6 +1,6 @@
 import logging
 from threading import Event
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import stomp
@@ -11,13 +11,8 @@ from fetcher import DisconnectListener, LoggingListener, ProcessingListener
 
 
 @pytest.fixture
-def mock_fetch_iiif_from_repo_uri_failed():
+def mock_fetch_iiif_image_failed():
     return MagicMock(side_effect=RuntimeError('FAILED!'))
-
-
-@pytest.fixture
-def mock_stomp_connection():
-    return MagicMock(spec=stomp.Connection11)
 
 
 @pytest.fixture
@@ -59,7 +54,7 @@ def test_disconnect_listener():
 
 def test_processing_listener_success(mocker, monkeypatch, stomp_frame):
     monkeypatch.setattr(fetcher, 'IIIF_BASE_URI', 'http://example.com/iiif/2/')
-    mocker.patch('fetcher.fetch_iiif_from_repo_uri')
+    mocker.patch('fetcher.fetch_iiif_image')
     connection = mocker.MagicMock(stomp.Connection11)
     listener = ProcessingListener(connection)
     assert listener.connection is connection
@@ -67,9 +62,10 @@ def test_processing_listener_success(mocker, monkeypatch, stomp_frame):
     connection.ack.assert_called_once_with('foo', 'image-fetcher')
 
 
-def test_processing_listener_failure(monkeypatch, stomp_frame, mock_stomp_connection, mock_fetch_iiif_from_repo_uri_failed):
+@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
+def test_processing_listener_failure(monkeypatch, stomp_frame, mock_stomp_connection, mock_fetch_iiif_image_failed):
     monkeypatch.setattr(fetcher, 'IIIF_BASE_URI', 'http://example.com/iiif/2/')
-    monkeypatch.setattr(fetcher, 'fetch_iiif_from_repo_uri', mock_fetch_iiif_from_repo_uri_failed)
+    monkeypatch.setattr(fetcher, 'fetch_iiif_image', mock_fetch_iiif_image_failed)
     listener = ProcessingListener(mock_stomp_connection)
     listener.on_message(stomp_frame)
     mock_stomp_connection.send.assert_called_once_with(
@@ -81,4 +77,4 @@ def test_processing_listener_failure(monkeypatch, stomp_frame, mock_stomp_connec
         },
         body=stomp_frame.body,
     )
-    mock_fetch_iiif_from_repo_uri_failed.assert_called()
+    mock_fetch_iiif_image_failed.assert_called()
