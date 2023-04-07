@@ -1,7 +1,7 @@
 FROM python:3.10.4-slim AS base
 
 WORKDIR /opt/image-fetcher
-COPY requirements.txt setup.py /opt/image-fetcher/
+COPY requirements.txt pyproject.toml /opt/image-fetcher/
 
 RUN pip install -r requirements.txt -e .
 COPY * /opt/image-fetcher/
