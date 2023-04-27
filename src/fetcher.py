@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from threading import Event
 from typing import Union, List
 
@@ -28,6 +29,8 @@ IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors'
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+HTTP_URI_PREFIXES = re.compile(r'^https?://')
 
 
 def get_iiif_identifier(repo_uri: str) -> str:
@@ -61,18 +64,23 @@ def get_url(url):
 
 
 @click.command()
-@click.argument('uris', nargs=-1)
-def cli(uris):
+@click.argument('identifiers', nargs=-1)
+def cli(identifiers):
     iiif_server = ImageServer(IIIF_BASE_URI)
-    for repo_uri in uris:
+    for identifier in identifiers:
         try:
-            iiif_identifier = get_iiif_identifier(repo_uri)
+            if HTTP_URI_PREFIXES.match(identifier):
+                # http: or https: repository URI, convert to a IIIF identifier
+                iiif_identifier = get_iiif_identifier(identifier)
+                logger.debug(f'Converted repo URI {identifier} to IIIF identifier {iiif_identifier}')
+            else:
+                iiif_identifier = identifier
             full_image_uri = iiif_server.image_uri(iiif_identifier)
-            logger.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
+            logger.info(f'Fetching {full_image_uri} for {identifier}')
             fetch_iiif_image(full_image_uri)
         except (AssertionError, RuntimeError) as e:
             logger.error(e)
-            logger.warning(f'Skipping {repo_uri}')
+            logger.warning(f'Skipping {identifier}')
 
 
 class LoggingListener(PrintingListener):
