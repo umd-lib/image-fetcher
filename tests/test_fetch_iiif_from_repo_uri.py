@@ -2,15 +2,21 @@ import logging
 from unittest.mock import patch
 
 import pytest
+from papaya.iiif2 import ImageService
+from papaya.source import RepositoryService
 from requests import RequestException
 
-from fetcher import get_url, get_iiif_identifier, fetch_iiif_image
-from iiif import ImageServer
+from fetcher import get_url, fetch_iiif_image, FetcherContext
 
 
 @pytest.fixture
-def image_server():
-    return ImageServer('http://example.com/iiif/')
+def image_service():
+    return ImageService(endpoint='http://example.com/iiif/2')
+
+
+@pytest.fixture
+def repo_service():
+    return RepositoryService(endpoint='http://example.com/fcrepo/rest')
 
 
 class MockSuccessResponse:
@@ -24,51 +30,43 @@ class MockFailureResponse:
     reason = 'Not Found'
 
 
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_repo_uri_outside_repo(monkeypatch):
-    with pytest.raises(AssertionError, match='must start with the endpoint URI'):
-        get_iiif_identifier('http://other.example.com/foo')
-
-
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_repo_path_no_leading_slash(monkeypatch):
-    with pytest.raises(AssertionError, match='must start with "/"'):
-        get_iiif_identifier('http://example.com/fcrepo/rest?foo')
-
-
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
+@patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
 def test_get_iiif_identifier(monkeypatch):
-    identifier = get_iiif_identifier('http://example.com/fcrepo/rest/foo/bar/123')
+    ctx = FetcherContext()
+    identifier = ctx.repo_service.get_iiif_id('http://example.com/fcrepo/rest/foo/bar/123')
     assert identifier == 'fcrepo:foo:bar:123'
 
 
 @patch('requests.get', return_value=MockSuccessResponse)
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_successful_retrieval(image_server, caplog):
+@patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+def test_successful_retrieval(image_service, caplog):
+    ctx = FetcherContext()
     caplog.set_level(logging.INFO)
-    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
-    fetch_iiif_image(image_uri)
+    resource = image_service.resource(ctx.repo_service.get_iiif_id('http://example.com/fcrepo/rest/foo'))
+    fetch_iiif_image(resource)
     assert 'Fetched 1024 bytes' in caplog.text
 
 
 @patch('requests.get', return_value=MockFailureResponse)
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_failed_retrieval_http_error(image_server, caplog):
+@patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+def test_failed_retrieval_http_error(image_service, caplog):
+    ctx = FetcherContext()
     caplog.set_level(logging.INFO)
-    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
+    resource = image_service.resource(ctx.repo_service.get_iiif_id('http://example.com/fcrepo/rest/foo'))
     with pytest.raises(RuntimeError) as e:
-        fetch_iiif_image(image_uri)
+        fetch_iiif_image(resource)
         assert 'Unable to retrieve' in str(e)
         assert 'HTTP error' in str(e)
 
 
 @patch('requests.get', side_effect=RequestException)
-@patch('fetcher.REPO_ENDPOINT_URI', 'http://example.com/fcrepo/rest')
-def test_failed_retrieval_request_exception(image_server, caplog):
+@patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+def test_failed_retrieval_request_exception(image_service, caplog):
+    ctx = FetcherContext()
     caplog.set_level(logging.INFO)
-    image_uri = image_server.image_uri(get_iiif_identifier('http://example.com/fcrepo/rest/foo'))
+    resource = image_service.resource(ctx.repo_service.get_iiif_id('http://example.com/fcrepo/rest/foo'))
     with pytest.raises(RuntimeError) as e:
-        fetch_iiif_image(image_uri)
+        fetch_iiif_image(resource)
         assert 'Unable to retrieve' in str(e)
         assert 'Request error' in str(e)
 

@@ -1,4 +1,4 @@
-FROM python:3.10.4-slim AS base
+FROM python:3.14.0-slim AS base
 
 WORKDIR /opt/image-fetcher
 COPY requirements.txt setup.py /opt/image-fetcher/
