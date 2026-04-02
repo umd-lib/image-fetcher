@@ -7,7 +7,7 @@ dependencies = [
     "backoff",
     "click",
     "codetiming",
-    "papaya",
+    "papaya-iiif",
     "requests",
     "stomp.py",
 ]

@@ -19,8 +19,8 @@ python -m venv .venv
 pip install -e .
 
 # configuration is done through environment variables
-export REPO_ENDPOINT_URI=https://fcrepo-qa.lib.umd.edu/fcrepo/rest
-export IIIF_BASE_URI=https://iiif-qa.lib.umd.edu/images/iiif/2/
+export REPO_ENDPOINT=https://fcrepo-qa.lib.umd.edu/fcrepo/rest
+export IIIF_IMAGE_ENDPOINT=https://iiif-qa.lib.umd.edu/images/iiif/2/
 export STOMP_SERVER=127.0.0.1:63613
 
 # pre-fetch an image directly
