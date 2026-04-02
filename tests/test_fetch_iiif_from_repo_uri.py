@@ -31,6 +31,7 @@ class MockFailureResponse:
 
 
 @patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+@patch('fetcher.REPO_PREFIX', 'fcrepo:')
 def test_get_iiif_identifier(monkeypatch):
     ctx = FetcherContext()
     identifier = ctx.repo_service.get_iiif_id('http://example.com/fcrepo/rest/foo/bar/123')
@@ -39,6 +40,7 @@ def test_get_iiif_identifier(monkeypatch):
 
 @patch('requests.get', return_value=MockSuccessResponse)
 @patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+@patch('fetcher.REPO_PREFIX', 'fcrepo:')
 def test_successful_retrieval(image_service, caplog):
     ctx = FetcherContext()
     caplog.set_level(logging.INFO)
@@ -49,6 +51,7 @@ def test_successful_retrieval(image_service, caplog):
 
 @patch('requests.get', return_value=MockFailureResponse)
 @patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+@patch('fetcher.REPO_PREFIX', 'fcrepo:')
 def test_failed_retrieval_http_error(image_service, caplog):
     ctx = FetcherContext()
     caplog.set_level(logging.INFO)
@@ -61,6 +64,7 @@ def test_failed_retrieval_http_error(image_service, caplog):
 
 @patch('requests.get', side_effect=RequestException)
 @patch('fetcher.REPO_ENDPOINT', 'http://example.com/fcrepo/rest')
+@patch('fetcher.REPO_PREFIX', 'fcrepo:')
 def test_failed_retrieval_request_exception(image_service, caplog):
     ctx = FetcherContext()
     caplog.set_level(logging.INFO)
