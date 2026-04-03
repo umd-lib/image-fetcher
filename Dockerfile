@@ -1,7 +1,8 @@
 FROM python:3.14.0-slim AS base
 
 WORKDIR /opt/image-fetcher
-COPY --parents pyproject.toml ./src/** /opt/image-fetcher/
+COPY pyproject.toml /opt/image-fetcher/
+COPY src/ /opt/image-fetcher/src/
 RUN pip install -e .
 
 FROM base AS image-fetch-listen
