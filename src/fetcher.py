@@ -1,7 +1,8 @@
 import logging
 import os
+import re
+from functools import cached_property
 from threading import Event
-from typing import Union, List
 
 import backoff
 import click
@@ -9,17 +10,19 @@ import requests
 import stomp
 from codetiming import Timer
 from dotenv import load_dotenv
+from papaya.iiif2 import ImageService, ImageResource, FULL_IMAGE_PARAMS
+from papaya.source import RepositoryService
 from requests import RequestException
 from stomp import PrintingListener, ConnectionListener, Connection
 from stomp.exception import NotConnectedException, ConnectFailedException
 from stomp.utils import Frame
 
-from iiif import ImageServer, ImageURI
-
 load_dotenv()
 
-REPO_ENDPOINT_URI = os.environ.get('REPO_ENDPOINT_URI')
-IIIF_BASE_URI = os.environ.get('IIIF_BASE_URI')
+REPO_ENDPOINT = os.environ.get('REPO_ENDPOINT')
+REPO_PREFIX = os.environ.get('REPO_PREFIX')
+IIIF_IMAGE_ENDPOINT = os.environ.get('IIIF_IMAGE_ENDPOINT')
+IIIF_IMAGE_ORIGIN = os.environ.get('IIIF_IMAGE_ORIGIN', None)
 STOMP_SERVER = os.environ.get('STOMP_SERVER')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 URI_HEADER_NAME = os.environ.get('URI_HEADER_NAME', 'CamelFcrepoUri')
@@ -29,30 +32,38 @@ IMAGES_ERROR_QUEUE = os.environ.get('IMAGES_ERROR_QUEUE', '/queue/images.errors'
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-
-def get_iiif_identifier(repo_uri: str) -> str:
-    assert repo_uri.startswith(REPO_ENDPOINT_URI), \
-        f'Repo URI {repo_uri} must start with the endpoint URI {REPO_ENDPOINT_URI}'
-
-    repo_path = repo_uri[len(REPO_ENDPOINT_URI):]
-    assert repo_path.startswith('/'), f'Repo path "{repo_path}" must start with "/"'
-
-    return 'fcrepo' + repo_path.replace('/', ':')
+HTTP_URI_PREFIXES = re.compile(r'^https?://')
 
 
-def fetch_iiif_image(image_uri: Union[str, ImageURI]):
+class FetcherContext:
+    @cached_property
+    def repo_service(self):
+        return RepositoryService(endpoint=REPO_ENDPOINT, prefix=REPO_PREFIX)
+
+    @cached_property
+    def image_service(self):
+        return ImageService(endpoint=IIIF_IMAGE_ENDPOINT, origin=IIIF_IMAGE_ORIGIN)
+
+    def iiif_identifier(self, repo_uri: str) -> str:
+        return self.repo_service.get_iiif_id(repo_uri)
+
+
+def fetch_iiif_image(image_resource: ImageResource):
+    full_image_url = image_resource.request_url(FULL_IMAGE_PARAMS)
+    logger.info(f'Fetching {full_image_url} for {image_resource.image_id}')
     try:
         with Timer(logger=None) as timer:
-            response = get_url(str(image_uri))
+            request_url = image_resource.request_url(FULL_IMAGE_PARAMS)
+            response = get_url(request_url)
     except RequestException as e:
         logger.error(f'Request error: {e}')
-        raise RuntimeError(f'Unable to retrieve {image_uri}; Request error: {e}')
+        raise RuntimeError(f'Unable to retrieve {request_url}; Request error: {e}')
 
     if response.ok:
-        logger.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {image_uri}')
+        logger.info(f'Fetched {len(response.content)} bytes in {timer.last:0.4f} seconds from {request_url}')
     else:
         logger.error(f'HTTP error: {response.status_code} {response.reason}')
-        raise RuntimeError(f'Unable to retrieve {image_uri}; HTTP error: {response.status_code} {response.reason}')
+        raise RuntimeError(f'Unable to retrieve {request_url}; HTTP error: {response.status_code} {response.reason}')
 
 
 @backoff.on_exception(backoff.expo, RequestException, max_tries=3)
@@ -61,18 +72,22 @@ def get_url(url):
 
 
 @click.command()
-@click.argument('uris', nargs=-1)
-def cli(uris):
-    iiif_server = ImageServer(IIIF_BASE_URI)
-    for repo_uri in uris:
+@click.argument('identifiers', nargs=-1)
+def cli(identifiers):
+    ctx = FetcherContext()
+    for identifier in identifiers:
         try:
-            iiif_identifier = get_iiif_identifier(repo_uri)
-            full_image_uri = iiif_server.image_uri(iiif_identifier)
-            logger.info(f'Converted repo URI {repo_uri} to IIIF URI {full_image_uri}')
-            fetch_iiif_image(full_image_uri)
+            if HTTP_URI_PREFIXES.match(identifier):
+                # http: or https: repository URI, convert to a IIIF identifier
+                iiif_identifier = ctx.iiif_identifier(identifier)
+                logger.debug(f'Converted repo URI {identifier} to IIIF identifier {iiif_identifier}')
+            else:
+                iiif_identifier = identifier
+            resource = ctx.image_service.resource(iiif_identifier)
+            fetch_iiif_image(resource)
         except (AssertionError, RuntimeError) as e:
             logger.error(e)
-            logger.warning(f'Skipping {repo_uri}')
+            logger.warning(f'Skipping {identifier}')
 
 
 class LoggingListener(PrintingListener):
@@ -88,8 +103,8 @@ class LoggingListener(PrintingListener):
 
 class ProcessingListener(ConnectionListener):
     def __init__(self, connection: Connection):
-        self.iiif_server = ImageServer(IIIF_BASE_URI)
         self.connection = connection
+        self.ctx = FetcherContext()
 
     def on_message(self, frame: Frame):
         if URI_HEADER_NAME in frame.headers:
@@ -99,10 +114,11 @@ class ProcessingListener(ConnectionListener):
             destination = frame.headers['destination']
             logger.info(f'Received message on {destination} for repo URI {repo_uri}')
             try:
-                frame.headers['IIIFIdentifier'] = get_iiif_identifier(repo_uri)
-                frame.headers['IIIFUri'] = self.iiif_server.image_uri(frame.headers['IIIFIdentifier'])
+                frame.headers['IIIFIdentifier'] = self.ctx.repo_service.get_iiif_id(repo_uri)
+                image_resource = self.ctx.image_service.resource(frame.headers['IIIFIdentifier'])
+                frame.headers['IIIFUri'] = image_resource.uri()
                 logger.info(f'Converted repo URI {repo_uri} to IIIF URI {frame.headers["IIIFUri"]}')
-                fetch_iiif_image(frame.headers['IIIFUri'])
+                fetch_iiif_image(image_resource)
             except (AssertionError, RuntimeError) as e:
                 logger.error(e)
                 self.connection.send(
@@ -198,7 +214,7 @@ def stomp_producer(uris):
         connection.disconnect()
 
 
-def send_uris(connection: Connection, uris: List[str]):
+def send_uris(connection: Connection, uris: list[str]):
     for n, repo_uri in enumerate(uris):
         logger.info(f'Sending repo URI {repo_uri} to stomp://{STOMP_SERVER}{IMAGES_QUEUE} for image pre-fetching')
         try:

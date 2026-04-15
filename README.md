@@ -16,11 +16,11 @@ git clone git@github.com:umd-lib/image-fetcher.git
 cd image-fetcher
 pyenv install -s $(cat .python-version)
 python -m venv .venv
-pip install -r requirements.txt -e .
+pip install -e .
 
 # configuration is done through environment variables
-export REPO_ENDPOINT_URI=https://fcrepo-qa.lib.umd.edu/fcrepo/rest
-export IIIF_BASE_URI=https://iiif-qa.lib.umd.edu/images/iiif/2/
+export REPO_ENDPOINT=https://fcrepo-qa.lib.umd.edu/fcrepo/rest
+export IIIF_IMAGE_ENDPOINT=https://iiif-qa.lib.umd.edu/images/iiif/2/
 export STOMP_SERVER=127.0.0.1:63613
 
 # pre-fetch an image directly
@@ -84,7 +84,7 @@ Tests are written using the [pytest] framework. To install the testing
 dependencies, run:
 
 ```bash
-pip install -r requirements.test.txt
+pip install -e . --group test
 ```
 
 Then run the test suite:
