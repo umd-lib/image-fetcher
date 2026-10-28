@@ -1,4 +1,4 @@
-FROM python:3.14.0-slim AS base
+FROM python:3.14.9-slim AS base
 
 WORKDIR /opt/image-fetcher
 COPY pyproject.toml /opt/image-fetcher/
